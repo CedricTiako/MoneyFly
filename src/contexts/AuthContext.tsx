@@ -10,6 +10,8 @@ interface AuthContextType {
   signUp: (email: string, password: string, nom: string) => Promise<any>;
   signIn: (email: string, password: string) => Promise<any>;
   signOut: () => Promise<void>;
+  verifyOtp: (email: string, token: string, type: 'signup' | 'recovery' | 'email_change') => Promise<any>;
+  resendOtp: (email: string, type: 'signup' | 'recovery') => Promise<any>;
   updateProfile: (updates: Partial<Profile>) => Promise<void>;
 }
 
@@ -44,6 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        console.log('Auth event:', event, session);
         setSession(session);
         setUser(session?.user ?? null);
         
@@ -106,7 +109,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       options: {
         data: {
           nom: nom
-        }
+        },
+        emailRedirectTo: undefined // Désactiver la redirection automatique
       }
     });
     return { data, error };
@@ -116,6 +120,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
+    });
+    return { data, error };
+  };
+
+  const verifyOtp = async (email: string, token: string, type: 'signup' | 'recovery' | 'email_change') => {
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type
+    });
+    return { data, error };
+  };
+
+  const resendOtp = async (email: string, type: 'signup' | 'recovery') => {
+    const { data, error } = await supabase.auth.resend({
+      type,
+      email,
+      options: {
+        emailRedirectTo: undefined // Désactiver la redirection automatique
+      }
     });
     return { data, error };
   };
@@ -145,6 +169,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signUp,
     signIn,
     signOut,
+    verifyOtp,
+    resendOtp,
     updateProfile
   };
 
