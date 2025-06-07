@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { LogIn, UserPlus, Mail, Lock, User, Shield, ArrowLeft } from 'lucide-react';
+import { LogIn, UserPlus, Mail, Lock, User, Shield, ArrowLeft, AlertCircle, CheckCircle } from 'lucide-react';
 
 export function LoginForm() {
   const [isLogin, setIsLogin] = useState(true);
@@ -10,6 +10,7 @@ export function LoginForm() {
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [showOtpVerification, setShowOtpVerification] = useState(false);
   const [pendingSession, setPendingSession] = useState<any>(null);
 
@@ -19,23 +20,36 @@ export function LoginForm() {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setSuccess('');
 
     try {
       if (isLogin) {
         const { error } = await signIn(email, password);
-        if (error) throw error;
+        if (error) {
+          if (error.message.includes('Email not confirmed')) {
+            setError('Votre email n\'est pas encore confirmé. Veuillez vérifier votre boîte mail.');
+            setShowOtpVerification(true);
+          } else {
+            throw error;
+          }
+        }
       } else {
         const { data, error } = await signUp(email, password, nom);
-        if (error) throw error;
-        
-        if (data?.user && !data?.session) {
+        if (error) {
+          if (error.message.includes('User already registered')) {
+            setError('Un compte existe déjà avec cet email. Essayez de vous connecter.');
+          } else {
+            throw error;
+          }
+        } else if (data?.user && !data?.session) {
           // L'utilisateur doit vérifier son email avec OTP
           setShowOtpVerification(true);
           setPendingSession(data);
+          setSuccess('Un code de vérification a été envoyé à votre email.');
         }
       }
     } catch (error: any) {
-      setError(error.message);
+      setError(error.message || 'Une erreur est survenue');
     } finally {
       setLoading(false);
     }
@@ -45,15 +59,24 @@ export function LoginForm() {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setSuccess('');
 
     try {
       const { error } = await verifyOtp(email, otp, 'signup');
-      if (error) throw error;
-      
-      // La vérification réussie sera gérée par le contexte d'authentification
-      setShowOtpVerification(false);
+      if (error) {
+        if (error.message.includes('Token has expired')) {
+          setError('Le code a expiré. Demandez un nouveau code.');
+        } else if (error.message.includes('Invalid token')) {
+          setError('Code invalide. Vérifiez le code et réessayez.');
+        } else {
+          throw error;
+        }
+      } else {
+        setSuccess('Email vérifié avec succès ! Connexion en cours...');
+        setShowOtpVerification(false);
+      }
     } catch (error: any) {
-      setError(error.message);
+      setError(error.message || 'Erreur lors de la vérification');
     } finally {
       setLoading(false);
     }
@@ -62,15 +85,17 @@ export function LoginForm() {
   const handleResendOtp = async () => {
     setLoading(true);
     setError('');
+    setSuccess('');
 
     try {
       const { error } = await resendOtp(email, 'signup');
-      if (error) throw error;
-      
-      setError(''); // Clear any previous errors
-      // Optionally show a success message
+      if (error) {
+        throw error;
+      } else {
+        setSuccess('Un nouveau code a été envoyé à votre email.');
+      }
     } catch (error: any) {
-      setError(error.message);
+      setError(error.message || 'Erreur lors du renvoi du code');
     } finally {
       setLoading(false);
     }
@@ -81,6 +106,7 @@ export function LoginForm() {
     setPendingSession(null);
     setOtp('');
     setError('');
+    setSuccess('');
   };
 
   if (showOtpVerification) {
@@ -99,20 +125,28 @@ export function LoginForm() {
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
-              {error}
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-start space-x-2">
+              <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {success && (
+            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 flex items-start space-x-2">
+              <CheckCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+              <span>{success}</span>
             </div>
           )}
 
           <form onSubmit={handleOtpVerification} className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Code de vérification
+                Code de vérification (6 chiffres)
               </label>
               <input
                 type="text"
                 value={otp}
-                onChange={(e) => setOtp(e.target.value)}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-lg font-mono tracking-widest"
                 placeholder="000000"
                 maxLength={6}
@@ -146,7 +180,7 @@ export function LoginForm() {
             <button
               onClick={handleResendOtp}
               disabled={loading}
-              className="w-full text-blue-600 hover:text-blue-700 font-medium py-2"
+              className="w-full text-blue-600 hover:text-blue-700 font-medium py-2 disabled:opacity-50"
             >
               Renvoyer le code
             </button>
@@ -158,6 +192,17 @@ export function LoginForm() {
               <ArrowLeft className="w-4 h-4 mr-2" />
               Retour à la connexion
             </button>
+          </div>
+
+          {/* Conseils de dépannage */}
+          <div className="mt-6 p-4 bg-yellow-50 rounded-lg">
+            <h3 className="text-sm font-medium text-yellow-800 mb-2">Vous ne recevez pas le code ?</h3>
+            <ul className="text-xs text-yellow-700 space-y-1">
+              <li>• Vérifiez votre dossier spam/courrier indésirable</li>
+              <li>• Attendez quelques minutes (délai de livraison)</li>
+              <li>• Vérifiez que l'adresse email est correcte</li>
+              <li>• Cliquez sur "Renvoyer le code" si nécessaire</li>
+            </ul>
           </div>
         </div>
       </div>
@@ -180,8 +225,16 @@ export function LoginForm() {
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
-            {error}
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-start space-x-2">
+            <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {success && (
+          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 flex items-start space-x-2">
+            <CheckCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+            <span>{success}</span>
           </div>
         )}
 

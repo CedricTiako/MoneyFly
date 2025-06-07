@@ -103,17 +103,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signUp = async (email: string, password: string, nom: string) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          nom: nom
-        },
-        emailRedirectTo: undefined // Désactiver la redirection automatique
+    try {
+      // Configuration pour forcer l'envoi d'OTP
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            nom: nom
+          },
+          emailRedirectTo: undefined, // Désactiver la redirection automatique
+          captchaToken: undefined
+        }
+      });
+
+      console.log('SignUp response:', { data, error });
+      
+      if (error) {
+        throw error;
       }
-    });
-    return { data, error };
+
+      // Si l'utilisateur existe déjà mais n'est pas confirmé
+      if (data.user && !data.session) {
+        console.log('User needs email confirmation');
+        return { data, error: null };
+      }
+
+      return { data, error };
+    } catch (error) {
+      console.error('SignUp error:', error);
+      return { data: null, error };
+    }
   };
 
   const signIn = async (email: string, password: string) => {
@@ -125,23 +145,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const verifyOtp = async (email: string, token: string, type: 'signup' | 'recovery' | 'email_change') => {
-    const { data, error } = await supabase.auth.verifyOtp({
-      email,
-      token,
-      type
-    });
-    return { data, error };
+    try {
+      console.log('Verifying OTP:', { email, token: token.length, type });
+      
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token: token.trim(), // Supprimer les espaces
+        type
+      });
+
+      console.log('OTP verification response:', { data, error });
+      return { data, error };
+    } catch (error) {
+      console.error('OTP verification error:', error);
+      return { data: null, error };
+    }
   };
 
   const resendOtp = async (email: string, type: 'signup' | 'recovery') => {
-    const { data, error } = await supabase.auth.resend({
-      type,
-      email,
-      options: {
-        emailRedirectTo: undefined // Désactiver la redirection automatique
-      }
-    });
-    return { data, error };
+    try {
+      console.log('Resending OTP:', { email, type });
+      
+      const { data, error } = await supabase.auth.resend({
+        type,
+        email,
+        options: {
+          emailRedirectTo: undefined // Désactiver la redirection automatique
+        }
+      });
+
+      console.log('Resend OTP response:', { data, error });
+      return { data, error };
+    } catch (error) {
+      console.error('Resend OTP error:', error);
+      return { data: null, error };
+    }
   };
 
   const signOut = async () => {
