@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { LogIn, UserPlus, Mail, Lock, User, Shield, ArrowLeft, AlertCircle, CheckCircle } from 'lucide-react';
+import { LogIn, UserPlus, Mail, Lock, User, Shield, ArrowLeft, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
 
 export function LoginForm() {
   const [isLogin, setIsLogin] = useState(true);
@@ -12,7 +12,7 @@ export function LoginForm() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showOtpVerification, setShowOtpVerification] = useState(false);
-  const [pendingSession, setPendingSession] = useState<any>(null);
+  const [otpType, setOtpType] = useState<'signup' | 'recovery'>('signup');
 
   const { signIn, signUp, verifyOtp, resendOtp } = useAuth();
 
@@ -24,28 +24,25 @@ export function LoginForm() {
 
     try {
       if (isLogin) {
-        const { error } = await signIn(email, password);
+        const { data, error } = await signIn(email, password);
         if (error) {
-          if (error.message.includes('Email not confirmed')) {
-            setError('Votre email n\'est pas encore confirmé. Veuillez vérifier votre boîte mail.');
+          if (error.needsVerification) {
             setShowOtpVerification(true);
+            setOtpType('signup');
+            setError('');
+            setSuccess('Veuillez entrer le code de vérification envoyé à votre email.');
           } else {
-            throw error;
+            setError(error.message);
           }
         }
       } else {
-        const { data, error } = await signUp(email, password, nom);
+        const { data, error, needsVerification } = await signUp(email, password, nom);
         if (error) {
-          if (error.message.includes('User already registered')) {
-            setError('Un compte existe déjà avec cet email. Essayez de vous connecter.');
-          } else {
-            throw error;
-          }
-        } else if (data?.user && !data?.session) {
-          // L'utilisateur doit vérifier son email avec OTP
+          setError(error.message);
+        } else if (needsVerification) {
           setShowOtpVerification(true);
-          setPendingSession(data);
-          setSuccess('Un code de vérification a été envoyé à votre email.');
+          setOtpType('signup');
+          setSuccess('Compte créé ! Un code de vérification a été envoyé à votre email.');
         }
       }
     } catch (error: any) {
@@ -57,23 +54,25 @@ export function LoginForm() {
 
   const handleOtpVerification = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (otp.length !== 6) {
+      setError('Le code doit contenir 6 chiffres');
+      return;
+    }
+
     setLoading(true);
     setError('');
     setSuccess('');
 
     try {
-      const { error } = await verifyOtp(email, otp, 'signup');
+      const { data, error } = await verifyOtp(email, otp, otpType);
       if (error) {
-        if (error.message.includes('Token has expired')) {
-          setError('Le code a expiré. Demandez un nouveau code.');
-        } else if (error.message.includes('Invalid token')) {
-          setError('Code invalide. Vérifiez le code et réessayez.');
-        } else {
-          throw error;
-        }
+        setError(error.message);
       } else {
         setSuccess('Email vérifié avec succès ! Connexion en cours...');
-        setShowOtpVerification(false);
+        // La connexion se fera automatiquement via onAuthStateChange
+        setTimeout(() => {
+          setShowOtpVerification(false);
+        }, 1500);
       }
     } catch (error: any) {
       setError(error.message || 'Erreur lors de la vérification');
@@ -88,9 +87,9 @@ export function LoginForm() {
     setSuccess('');
 
     try {
-      const { error } = await resendOtp(email, 'signup');
+      const { data, error } = await resendOtp(email, otpType);
       if (error) {
-        throw error;
+        setError(error.message);
       } else {
         setSuccess('Un nouveau code a été envoyé à votre email.');
       }
@@ -103,10 +102,15 @@ export function LoginForm() {
 
   const resetForm = () => {
     setShowOtpVerification(false);
-    setPendingSession(null);
     setOtp('');
     setError('');
     setSuccess('');
+  };
+
+  const formatOtpInput = (value: string) => {
+    // Ne garder que les chiffres et limiter à 6 caractères
+    const numbers = value.replace(/\D/g, '').slice(0, 6);
+    return numbers;
   };
 
   if (showOtpVerification) {
@@ -117,50 +121,51 @@ export function LoginForm() {
             <div className="bg-gradient-to-r from-green-500 to-emerald-600 p-4 rounded-xl inline-block mb-4">
               <Shield className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">Vérification OTP</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Vérification Email</h1>
             <p className="text-gray-600 mt-2">
               Entrez le code de vérification envoyé à
             </p>
-            <p className="text-blue-600 font-medium">{email}</p>
+            <p className="text-blue-600 font-medium break-all">{email}</p>
           </div>
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-start space-x-2">
               <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-              <span>{error}</span>
+              <span className="text-sm">{error}</span>
             </div>
           )}
 
           {success && (
             <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 flex items-start space-x-2">
               <CheckCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-              <span>{success}</span>
+              <span className="text-sm">{success}</span>
             </div>
           )}
 
           <form onSubmit={handleOtpVerification} className="space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Code de vérification (6 chiffres)
+                Code de vérification
               </label>
               <input
                 type="text"
                 value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-lg font-mono tracking-widest"
+                onChange={(e) => setOtp(formatOtpInput(e.target.value))}
+                className="w-full px-4 py-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center text-2xl font-mono tracking-[0.5em] placeholder-gray-300"
                 placeholder="000000"
                 maxLength={6}
+                autoComplete="one-time-code"
                 required
               />
-              <p className="text-sm text-gray-500 mt-2">
-                Le code expire dans 10 minutes
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                Code à 6 chiffres • Expire dans 10 minutes
               </p>
             </div>
 
             <button
               type="submit"
               disabled={loading || otp.length !== 6}
-              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-lg font-semibold hover:from-green-600 hover:to-emerald-700 transition-all duration-200 disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-lg font-semibold hover:from-green-600 hover:to-emerald-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <div className="flex items-center justify-center">
@@ -176,18 +181,19 @@ export function LoginForm() {
             </button>
           </form>
 
-          <div className="mt-6 space-y-4">
+          <div className="mt-6 space-y-3">
             <button
               onClick={handleResendOtp}
               disabled={loading}
-              className="w-full text-blue-600 hover:text-blue-700 font-medium py-2 disabled:opacity-50"
+              className="w-full flex items-center justify-center text-blue-600 hover:text-blue-700 font-medium py-2 disabled:opacity-50 transition-colors"
             >
+              <RefreshCw className="w-4 h-4 mr-2" />
               Renvoyer le code
             </button>
             
             <button
               onClick={resetForm}
-              className="w-full flex items-center justify-center text-gray-600 hover:text-gray-700 font-medium py-2"
+              className="w-full flex items-center justify-center text-gray-600 hover:text-gray-700 font-medium py-2 transition-colors"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
               Retour à la connexion
@@ -195,13 +201,13 @@ export function LoginForm() {
           </div>
 
           {/* Conseils de dépannage */}
-          <div className="mt-6 p-4 bg-yellow-50 rounded-lg">
-            <h3 className="text-sm font-medium text-yellow-800 mb-2">Vous ne recevez pas le code ?</h3>
+          <div className="mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+            <h3 className="text-sm font-medium text-yellow-800 mb-2">Code non reçu ?</h3>
             <ul className="text-xs text-yellow-700 space-y-1">
               <li>• Vérifiez votre dossier spam/courrier indésirable</li>
-              <li>• Attendez quelques minutes (délai de livraison)</li>
+              <li>• Attendez 2-3 minutes (délai de livraison)</li>
               <li>• Vérifiez que l'adresse email est correcte</li>
-              <li>• Cliquez sur "Renvoyer le code" si nécessaire</li>
+              <li>• Utilisez "Renvoyer le code" si nécessaire</li>
             </ul>
           </div>
         </div>
@@ -227,14 +233,14 @@ export function LoginForm() {
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-start space-x-2">
             <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-            <span>{error}</span>
+            <span className="text-sm">{error}</span>
           </div>
         )}
 
         {success && (
           <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 flex items-start space-x-2">
             <CheckCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-            <span>{success}</span>
+            <span className="text-sm">{success}</span>
           </div>
         )}
 
@@ -291,6 +297,11 @@ export function LoginForm() {
                 minLength={6}
               />
             </div>
+            {!isLogin && (
+              <p className="text-xs text-gray-500 mt-1">
+                Minimum 6 caractères
+              </p>
+            )}
           </div>
 
           <button
@@ -301,7 +312,7 @@ export function LoginForm() {
             {loading ? (
               <div className="flex items-center justify-center">
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                Chargement...
+                {isLogin ? 'Connexion...' : 'Création...'}
               </div>
             ) : (
               <div className="flex items-center justify-center">
@@ -314,19 +325,23 @@ export function LoginForm() {
 
         <div className="mt-6 text-center">
           <button
-            onClick={() => setIsLogin(!isLogin)}
-            className="text-blue-600 hover:text-blue-700 font-medium"
+            onClick={() => {
+              setIsLogin(!isLogin);
+              setError('');
+              setSuccess('');
+            }}
+            className="text-blue-600 hover:text-blue-700 font-medium transition-colors"
           >
             {isLogin ? "Pas de compte ? S'inscrire" : 'Déjà un compte ? Se connecter'}
           </button>
         </div>
 
         {!isLogin && (
-          <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+          <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
             <div className="flex items-start space-x-2">
               <Shield className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
               <div className="text-sm text-blue-700">
-                <p className="font-medium mb-1">Vérification par OTP</p>
+                <p className="font-medium mb-1">Vérification sécurisée</p>
                 <p>Après inscription, vous recevrez un code de vérification par email pour sécuriser votre compte.</p>
               </div>
             </div>

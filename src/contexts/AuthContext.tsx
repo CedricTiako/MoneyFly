@@ -46,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth event:', event, session);
+        console.log('Auth event:', event, session?.user?.email);
         setSession(session);
         setUser(session?.user ?? null);
         
@@ -104,81 +104,194 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string, nom: string) => {
     try {
-      // Configuration pour forcer l'envoi d'OTP
+      console.log('Attempting signup for:', email);
+      
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: email.toLowerCase().trim(),
         password,
         options: {
           data: {
-            nom: nom
-          },
-          emailRedirectTo: undefined, // Désactiver la redirection automatique
-          captchaToken: undefined
+            nom: nom.trim()
+          }
         }
       });
 
-      console.log('SignUp response:', { data, error });
+      console.log('SignUp response:', { 
+        user: data.user?.id, 
+        session: !!data.session, 
+        error: error?.message 
+      });
       
       if (error) {
+        // Gérer les erreurs spécifiques
+        if (error.message.includes('User already registered')) {
+          return { 
+            data: null, 
+            error: { 
+              message: 'Un compte existe déjà avec cet email. Essayez de vous connecter ou de réinitialiser votre mot de passe.' 
+            } 
+          };
+        }
         throw error;
       }
 
-      // Si l'utilisateur existe déjà mais n'est pas confirmé
+      // Si l'utilisateur est créé mais pas de session (email non confirmé)
       if (data.user && !data.session) {
-        console.log('User needs email confirmation');
+        console.log('User created, email confirmation required');
+        return { 
+          data, 
+          error: null,
+          needsVerification: true 
+        };
+      }
+
+      // Si l'utilisateur est créé et connecté directement
+      if (data.user && data.session) {
+        console.log('User created and logged in directly');
         return { data, error: null };
       }
 
       return { data, error };
-    } catch (error) {
+    } catch (error: any) {
       console.error('SignUp error:', error);
-      return { data: null, error };
+      return { 
+        data: null, 
+        error: { 
+          message: error.message || 'Erreur lors de la création du compte' 
+        } 
+      };
     }
   };
 
   const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
-    return { data, error };
+    try {
+      console.log('Attempting signin for:', email);
+      
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.toLowerCase().trim(),
+        password
+      });
+
+      console.log('SignIn response:', { 
+        user: data.user?.id, 
+        session: !!data.session, 
+        error: error?.message 
+      });
+
+      if (error) {
+        // Gérer les erreurs spécifiques
+        if (error.message.includes('Email not confirmed')) {
+          return { 
+            data: null, 
+            error: { 
+              message: 'Votre email n\'est pas encore confirmé. Veuillez vérifier votre boîte mail et entrer le code de vérification.',
+              needsVerification: true
+            } 
+          };
+        }
+        if (error.message.includes('Invalid login credentials')) {
+          return { 
+            data: null, 
+            error: { 
+              message: 'Email ou mot de passe incorrect.' 
+            } 
+          };
+        }
+        throw error;
+      }
+
+      return { data, error };
+    } catch (error: any) {
+      console.error('SignIn error:', error);
+      return { 
+        data: null, 
+        error: { 
+          message: error.message || 'Erreur lors de la connexion' 
+        } 
+      };
+    }
   };
 
   const verifyOtp = async (email: string, token: string, type: 'signup' | 'recovery' | 'email_change') => {
     try {
-      console.log('Verifying OTP:', { email, token: token.length, type });
+      console.log('Verifying OTP for:', email, 'Type:', type);
       
       const { data, error } = await supabase.auth.verifyOtp({
-        email,
-        token: token.trim(), // Supprimer les espaces
+        email: email.toLowerCase().trim(),
+        token: token.trim(),
         type
       });
 
-      console.log('OTP verification response:', { data, error });
+      console.log('OTP verification response:', { 
+        user: data.user?.id, 
+        session: !!data.session, 
+        error: error?.message 
+      });
+
+      if (error) {
+        if (error.message.includes('Token has expired')) {
+          return { 
+            data: null, 
+            error: { 
+              message: 'Le code a expiré. Demandez un nouveau code.' 
+            } 
+          };
+        }
+        if (error.message.includes('Invalid token') || error.message.includes('Token not found')) {
+          return { 
+            data: null, 
+            error: { 
+              message: 'Code invalide. Vérifiez le code et réessayez.' 
+            } 
+          };
+        }
+        throw error;
+      }
+
       return { data, error };
-    } catch (error) {
+    } catch (error: any) {
       console.error('OTP verification error:', error);
-      return { data: null, error };
+      return { 
+        data: null, 
+        error: { 
+          message: error.message || 'Erreur lors de la vérification du code' 
+        } 
+      };
     }
   };
 
   const resendOtp = async (email: string, type: 'signup' | 'recovery') => {
     try {
-      console.log('Resending OTP:', { email, type });
+      console.log('Resending OTP for:', email, 'Type:', type);
       
       const { data, error } = await supabase.auth.resend({
         type,
-        email,
-        options: {
-          emailRedirectTo: undefined // Désactiver la redirection automatique
-        }
+        email: email.toLowerCase().trim()
       });
 
-      console.log('Resend OTP response:', { data, error });
+      console.log('Resend OTP response:', { data, error: error?.message });
+
+      if (error) {
+        if (error.message.includes('For security purposes')) {
+          return { 
+            data: null, 
+            error: { 
+              message: 'Veuillez attendre avant de demander un nouveau code.' 
+            } 
+          };
+        }
+        throw error;
+      }
+
       return { data, error };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Resend OTP error:', error);
-      return { data: null, error };
+      return { 
+        data: null, 
+        error: { 
+          message: error.message || 'Erreur lors du renvoi du code' 
+        } 
+      };
     }
   };
 
